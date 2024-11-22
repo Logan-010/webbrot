@@ -25,7 +25,7 @@ impl Default for Options {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Colormap {
     Acton,
     Bamako,

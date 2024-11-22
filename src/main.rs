@@ -234,6 +234,39 @@ fn App() -> impl IntoView {
 
         <br/>
 
+        <label for="colormap">Colormap:</label>
+        <select
+            name="colormap"
+            id="colormap"
+            on:change=move |ev| {
+                let selected_value = event_target_value(&ev);
+                options
+                    .update(|o| {
+                        o
+                            .colormap = webbrot::options::COLORMAP_CHOICES
+                            .iter()
+                            .find(|c| format!("{:?}", c) == selected_value)
+                            .copied();
+                    });
+            }
+        >
+            <option value="none">None</option>
+            {move || {
+                webbrot::options::COLORMAP_CHOICES
+                    .iter()
+                    .map(|c| {
+                        view! {
+                            <option value=move || {
+                                format!("{:?}", c)
+                            }>{move || format!("{:?}", c)}</option>
+                        }
+                    })
+                    .collect_view()
+            }}
+        </select>
+
+        <br/>
+
         <button on:click=move |_| generate_image.dispatch(options.get())>Generate</button>
     }
 }
