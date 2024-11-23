@@ -5,6 +5,7 @@ use base64::{
 };
 use image::{ImageFormat, Rgba, RgbaImage};
 use num::complex::Complex64;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::io::Cursor;
 
 pub mod colormaps;
@@ -72,7 +73,7 @@ pub fn choose_center(x: &mut f64, y: &mut f64, cfg: &MandelbrotConfig) -> u32 {
     steps
 }
 
-async fn gen_image(options: &options::Options) -> Vec<u8> {
+async fn gen_image(options: options::Options) -> Vec<u8> {
     let cfg = MandelbrotConfig {
         min_steps: options.step_limits[0],
         max_steps: options.step_limits[1],
@@ -85,7 +86,7 @@ async fn gen_image(options: &options::Options) -> Vec<u8> {
 
     let (width, height) = (options.dimensions[0], options.dimensions[1]);
 
-    let palette = if let Some(ref colormap) = options.colormap {
+    let palette = if let Some(colormap) = options.colormap {
         colormap.to_colormap()
     } else {
         let choice = fastrand::usize(0..options::COLORMAP_CHOICES.len() - 1);
@@ -128,10 +129,14 @@ async fn gen_image(options: &options::Options) -> Vec<u8> {
 
     let mut image = RgbaImage::new(width, height);
 
-    for y in 0..height {
-        for x in 0..width {
-            let point = (x as f64, y as f64);
-
+    let pixels = (0..height)
+        .into_par_iter()
+        .flat_map(|y| {
+            (0..width)
+                .into_par_iter()
+                .map(move |x| (x as f64, y as f64))
+        })
+        .map(|point| {
             let scaled = (
                 lerp(xmin, xmax, point.0 / (width as f64 - 1.0)),
                 lerp(ymin, ymax, point.1 / (height as f64 - 1.0)),
@@ -143,10 +148,16 @@ async fn gen_image(options: &options::Options) -> Vec<u8> {
 
             let sample = &palette[index..];
 
-            let color = Rgba::from([sample[0], sample[1], sample[2], 0xFF]);
+            (
+                point.0 as u32,
+                point.1 as u32,
+                Rgba::from([sample[0], sample[1], sample[2], 0xFF]),
+            )
+        })
+        .collect::<Vec<(u32, u32, Rgba<u8>)>>();
 
-            image.put_pixel(x, y, color);
-        }
+    for (x, y, color) in pixels {
+        image.put_pixel(x, y, color);
     }
 
     let mut bytes: Vec<u8> = Vec::new();
@@ -157,6 +168,6 @@ async fn gen_image(options: &options::Options) -> Vec<u8> {
 }
 
 pub async fn encode_image(options: options::Options) -> String {
-    let bytes = gen_image(&options).await;
+    let bytes = gen_image(options).await;
     GeneralPurpose::new(&STANDARD, GeneralPurposeConfig::new()).encode(&bytes)
 }

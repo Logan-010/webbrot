@@ -14,7 +14,7 @@ fn App() -> impl IntoView {
     view! {
         <div class="w-screen h-screen flex items-center justify-center relative">
             <Transition fallback=|| {
-                view! { <p class="text-white text-lg">Loading...</p> }
+                view! { <p class="text-white text-sm">Loading...</p> }
             }>
 
                 {move || {
@@ -33,13 +33,13 @@ fn App() -> impl IntoView {
 
             </Transition>
 
-            <div class="flex flex-col items-center justify-center text-white rounded-lg p-4 space-y-2">
+            <div class="flex flex-col items-center justify-center text-white rounded-lg p-4 space-y-2 border-gray-800 border">
                 <p class="text-white text-md">Mandelbrot fractal generator</p>
 
                 <div class="items-center justify-center">
-                    <p class="text-white text-lg">Width:</p>
+                    <p class="text-white text-sm">Width:</p>
                     <input
-                        class="text-gray-500 text-lg border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
                         type="number"
                         value="960"
                         min="0"
@@ -57,9 +57,9 @@ fn App() -> impl IntoView {
                 </div>
 
                 <div class="items-center justify-center">
-                    <p class="text-white text-lg">Height:</p>
+                    <p class="text-white text-sm">Height:</p>
                     <input
-                        class="text-gray-500 text-lg border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
                         type="number"
                         value="540"
                         min="0"
@@ -77,9 +77,9 @@ fn App() -> impl IntoView {
                 </div>
 
                 <div class="items-center justify-center">
-                    <p class="text-white text-lg">Center X:</p>
+                    <p class="text-white text-sm">Center X:</p>
                     <input
-                        class="text-gray-500 text-lg border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
                         type="number"
                         value=""
                         min="0"
@@ -103,9 +103,9 @@ fn App() -> impl IntoView {
                 </div>
 
                 <div class="items-center justify-center">
-                    <p class="text-white text-lg">Center Y:</p>
+                    <p class="text-white text-sm">Center Y:</p>
                     <input
-                        class="text-gray-500 text-lg border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
                         type="number"
                         value=""
                         min="0"
@@ -129,9 +129,9 @@ fn App() -> impl IntoView {
                 </div>
 
                 <div class="items-center justify-center">
-                    <p class="text-white text-lg">View size X:</p>
+                    <p class="text-white text-sm">View size X:</p>
                     <input
-                        class="text-gray-500 text-lg border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
                         type="number"
                         value=""
                         min="0"
@@ -155,9 +155,9 @@ fn App() -> impl IntoView {
                 </div>
 
                 <div class="items-center justify-center">
-                    <p class="text-white text-lg">View size Y:</p>
+                    <p class="text-white text-sm">View size Y:</p>
                     <input
-                        class="text-gray-500 text-lg border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
                         type="number"
                         value=""
                         min="0"
@@ -181,9 +181,9 @@ fn App() -> impl IntoView {
                 </div>
 
                 <div class="items-center justify-center">
-                    <p class="text-white text-lg">Steps min:</p>
+                    <p class="text-white text-sm">Steps min:</p>
                     <input
-                        class="text-gray-500 text-lg border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
                         type="number"
                         value="150"
                         min="0"
@@ -201,9 +201,9 @@ fn App() -> impl IntoView {
                 </div>
 
                 <div class="items-center justify-center">
-                    <p class="text-white text-lg">Steps max:</p>
+                    <p class="text-white text-sm">Steps max:</p>
                     <input
-                        class="text-gray-500 text-lg border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
                         type="number"
                         value="1024"
                         min="0"
@@ -221,9 +221,9 @@ fn App() -> impl IntoView {
                 </div>
 
                 <div class="items-center justify-center">
-                    <p class="text-white text-lg">RNG Seed</p>
+                    <p class="text-white text-sm">RNG Seed</p>
                     <input
-                        class="text-gray-500 text-lg border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
                         type="number"
                         value=""
                         min="0"
@@ -241,9 +241,9 @@ fn App() -> impl IntoView {
                 </div>
 
                 <div class="items-center justify-center">
-                    <p class="text-white text-lg">Bailout number</p>
+                    <p class="text-white text-sm">Bailout number</p>
                     <input
-                        class="text-gray-500 text-lg border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
                         type="number"
                         value="15"
                         min="0"
@@ -260,12 +260,32 @@ fn App() -> impl IntoView {
 
                 </div>
 
+                 <div class="items-center justify-center">
+                    <p class="text-white text-sm">Threads</p>
+                    <input
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        type="number"
+                        value="4"
+                        min="1"
+                        on:input=move |ev| {
+                            options
+                                .update(|o| {
+                                    o
+                                        .threads = event_target_value(&ev)
+                                        .parse::<f64>()
+                                        .unwrap_or(4.0) as usize;
+                                })
+                        }
+                    />
+
+                </div>
+
                 <div class="items-center justify-center">
-                    <label class="text-white text-lg" for="colormap">
+                    <label class="text-white text-sm" for="colormap">
                         Colormap:
                     </label>
                     <select
-                        class="text-gray-500 text-lg border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
                         name="colormap"
                         id="colormap"
                         on:change=move |ev| {
@@ -281,7 +301,7 @@ fn App() -> impl IntoView {
                         }
                     >
 
-                        <option value="none" class="text-white text-lg">
+                        <option value="none" class="text-white text-sm">
                             None
                         </option>
                         {move || {
@@ -291,7 +311,7 @@ fn App() -> impl IntoView {
                                     view! {
                                         <option
                                             value=move || { format!("{:?}", c) }
-                                            class="text-white text-lg"
+                                            class="text-white text-sm"
                                         >
                                             {move || format!("{:?}", c)}
                                         </option>

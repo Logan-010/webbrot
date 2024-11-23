@@ -9,6 +9,7 @@ pub struct Options {
     pub colormap: Option<Colormap>,
     pub rng_seed: Option<u64>,
     pub bailout_num: f64,
+    pub threads: usize,
 }
 
 impl Default for Options {
@@ -21,6 +22,7 @@ impl Default for Options {
             colormap: None,
             rng_seed: None,
             bailout_num: super::BAILOUT_NUM,
+            threads: 4,
         }
     }
 }
@@ -89,7 +91,7 @@ pub const COLORMAP_CHOICES: &[Colormap] = &[
 ];
 
 impl Colormap {
-    pub fn to_colormap(&self) -> &[u8] {
+    pub fn to_colormap(self) -> &'static [u8] {
         match self {
             Colormap::Acton => colormaps::ACTON,
             Colormap::Bamako => colormaps::BAMAKO,
