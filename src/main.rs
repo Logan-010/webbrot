@@ -260,26 +260,6 @@ fn App() -> impl IntoView {
 
                 </div>
 
-                 <div class="items-center justify-center">
-                    <p class="text-white text-sm">Threads</p>
-                    <input
-                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
-                        type="number"
-                        value="4"
-                        min="1"
-                        on:input=move |ev| {
-                            options
-                                .update(|o| {
-                                    o
-                                        .threads = event_target_value(&ev)
-                                        .parse::<f64>()
-                                        .unwrap_or(4.0) as usize;
-                                })
-                        }
-                    />
-
-                </div>
-
                 <div class="items-center justify-center">
                     <label class="text-white text-sm" for="colormap">
                         Colormap:
