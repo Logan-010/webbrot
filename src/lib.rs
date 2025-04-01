@@ -3,9 +3,10 @@ use base64::{
     engine::{GeneralPurpose, GeneralPurposeConfig},
     Engine,
 };
+use futures::{channel::mpsc, SinkExt, StreamExt};
 use image::{ImageFormat, Rgba, RgbaImage};
+use leptos::task;
 use num::complex::Complex64;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::io::Cursor;
 
 pub mod colormaps;
@@ -15,6 +16,7 @@ pub const MIN_STEPS: u32 = 150;
 pub const MAX_STEPS: u32 = 1024;
 pub const BAILOUT_NUM: f64 = 15.0;
 
+#[derive(Clone, Copy)]
 pub struct MandelbrotConfig {
     pub min_steps: u32,
     pub max_steps: u32,
@@ -129,41 +131,57 @@ async fn gen_image(options: options::Options) -> Vec<u8> {
 
     let mut image = RgbaImage::new(width, height);
 
-    let pixels = (0..height)
-        .into_par_iter()
-        .flat_map(|y| {
-            (0..width)
-                .into_par_iter()
-                .map(move |x| (x as f64, y as f64))
+    let (tx, rx) = mpsc::channel(100);
+
+    let pixels: Vec<(u32, u32)> = (0..height)
+        .flat_map(|y| (0..width).map(|x| (x, y)).collect::<Vec<(u32, u32)>>())
+        .collect();
+
+    tracing::info!("Starting generation");
+    for pixel_group in pixels.chunks(options.chunk_size) {
+        let mut group = vec![(0, 0); pixel_group.len()];
+        group.clone_from_slice(pixel_group);
+        let mut task_tx = tx.clone();
+        task::spawn(async move {
+            for pixel in group {
+                let scaled = (
+                    lerp(xmin, xmax, pixel.0 as f64 / (width as f64 - 1.0)),
+                    lerp(ymin, ymax, pixel.1 as f64 / (height as f64 - 1.0)),
+                );
+
+                let iteration = mandelbrot(scaled, &cfg);
+
+                let index = (3 * iteration as usize).clamp(0, palette.len() - 3);
+
+                let sample = &palette[index..];
+
+                task_tx
+                    .send((
+                        pixel.0,
+                        pixel.1,
+                        Rgba::from([sample[0], sample[1], sample[2], 0xFF]),
+                    ))
+                    .await
+                    .unwrap();
+            }
         })
-        .map(|point| {
-            let scaled = (
-                lerp(xmin, xmax, point.0 / (width as f64 - 1.0)),
-                lerp(ymin, ymax, point.1 / (height as f64 - 1.0)),
-            );
+    }
+    tracing::info!("Tasks spawned");
 
-            let iteration = mandelbrot(scaled, &cfg);
-
-            let index = (3 * iteration as usize).clamp(0, palette.len() - 3);
-
-            let sample = &palette[index..];
-
-            (
-                point.0 as u32,
-                point.1 as u32,
-                Rgba::from([sample[0], sample[1], sample[2], 0xFF]),
-            )
-        })
-        .collect::<Vec<(u32, u32, Rgba<u8>)>>();
-
-    for (x, y, color) in pixels {
+    let mut values = rx.take((width * height) as usize);
+    while let Some((x, y, color)) = values.next().await {
         image.put_pixel(x, y, color);
     }
+
+    tracing::info!("Pixels recieved");
 
     let mut bytes: Vec<u8> = Vec::new();
     image
         .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
         .unwrap();
+
+    tracing::info!("Wrote data to image");
+
     bytes
 }
 

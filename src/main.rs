@@ -1,14 +1,17 @@
-use leptos::*;
+use leptos::{prelude::*, task};
 use webbrot::{encode_image, options::Options};
 
 fn main() {
+    tracing_wasm::set_as_global_default();
+    task::Executor::init_wasm_bindgen().unwrap();
+
     mount_to_body(App);
 }
 
 #[component]
 fn App() -> impl IntoView {
-    let options = create_rw_signal(Options::default());
-    let generate_image = create_action(|o: &Options| encode_image(o.clone()));
+    let options = RwSignal::new(Options::default());
+    let generate_image = Action::new(|o: &Options| encode_image(o.clone()));
     let image = generate_image.value();
 
     view! {
@@ -261,6 +264,26 @@ fn App() -> impl IntoView {
                 </div>
 
                 <div class="items-center justify-center">
+                    <p class="text-white text-sm">Chunk size</p>
+                    <input
+                        class="text-gray-500 text-sm border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white"
+                        type="number"
+                        value="15"
+                        min="1"
+                        on:input=move |ev| {
+                            options
+                                .update(|o| {
+                                    o
+                                        .chunk_size = event_target_value(&ev)
+                                        .parse::<f64>()
+                                        .unwrap_or(15.0) as usize;
+                                })
+                        }
+                    />
+
+                </div>
+
+                <div class="items-center justify-center">
                     <label class="text-white text-sm" for="colormap">
                         Colormap:
                     </label>
@@ -304,7 +327,7 @@ fn App() -> impl IntoView {
                 </div>
 
                 <button
-                    on:click=move |_| generate_image.dispatch(options.get())
+                    on:click=move |_| {generate_image.dispatch(options.get());}
                     class="border-gray-800 border-gray-800 bg-gray-950 hover:bg-gray-900 hover:text-white focus-visible:ring-gray-300 hover:underline inline-flex items-center rounded-md border border-gray-200 px-4 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950"
                 >
                     Generate
