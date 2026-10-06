@@ -1,16 +1,9 @@
-use base64::{
-    alphabet::STANDARD,
-    engine::{GeneralPurpose, GeneralPurposeConfig},
-    Engine,
-};
-use futures::{channel::mpsc, SinkExt, StreamExt};
-use image::{ImageFormat, Rgba, RgbaImage};
-use leptos::task;
 use num::complex::Complex64;
-use std::io::Cursor;
 
 pub mod colormaps;
+pub mod download;
 pub mod options;
+pub mod renderer;
 
 pub const MIN_STEPS: u32 = 150;
 pub const MAX_STEPS: u32 = 1024;
@@ -75,7 +68,36 @@ pub fn choose_center(x: &mut f64, y: &mut f64, cfg: &MandelbrotConfig) -> u32 {
     steps
 }
 
-async fn gen_image(options: options::Options) -> Vec<u8> {
+pub(crate) struct View {
+    pub bounds: [f64; 4],
+    pub palette: &'static [u8],
+    pub config: MandelbrotConfig,
+}
+
+pub(crate) fn prepare_view(options: &options::Options) -> Result<View, String> {
+    if options.dimensions.iter().any(|&n| n < 2) {
+        return Err("Width and height must be at least 2 pixels.".into());
+    }
+    if options.step_limits[1] < 2
+        || (options.image_center.is_none()
+            && (options.step_limits[0] == 0 || options.step_limits[0] >= options.step_limits[1]))
+    {
+        return Err(
+            "For a random center, steps must satisfy 1 ≤ min < max; max must be at least 2.".into(),
+        );
+    }
+    if !options.bailout_num.is_finite() || !(0.0..=38.0).contains(&options.bailout_num) {
+        return Err("The bailout exponent must be between 0 and 38 for GPU rendering.".into());
+    }
+    if options
+        .image_center
+        .is_some_and(|c| c.iter().any(|n| !n.is_finite()))
+        || options
+            .view_size
+            .is_some_and(|s| s.iter().any(|n| !n.is_finite() || *n <= 0.0))
+    {
+        return Err("The center must be finite and both view sizes must be positive.".into());
+    }
     let cfg = MandelbrotConfig {
         min_steps: options.step_limits[0],
         max_steps: options.step_limits[1],
@@ -108,7 +130,19 @@ async fn gen_image(options: options::Options) -> Vec<u8> {
         }
         None => {
             let (mut x, mut y) = (0.0, 0.0);
-            steps = choose_center(&mut x, &mut y, &cfg);
+            // Bound the search so impossible step ranges cannot hang the browser forever.
+            let mut found = None;
+            for _ in 0..10_000 {
+                x = rand_range(-1.5, 1.0);
+                y = rand_range(0.0, 1.0);
+                let n = mandelbrot((x, y), &cfg);
+                if (cfg.min_steps..cfg.max_steps).contains(&n) {
+                    found = Some(n);
+                    break;
+                }
+            }
+            steps = found
+                .ok_or("No suitable random center found. Try a different seed or step range.")?;
             (x, y)
         }
     };
@@ -122,6 +156,11 @@ async fn gen_image(options: options::Options) -> Vec<u8> {
         dx = size[0] / 2.0;
         dy = size[1] / 2.0;
     } else {
+        if steps == 0 {
+            return Err(
+                "This center does not escape. Specify both view sizes to render it.".into(),
+            );
+        }
         dx = (steps as f64).powf(rand_range(-2.5, -1.0));
         dy = dx * height as f64 / width as f64;
     }
@@ -129,63 +168,9 @@ async fn gen_image(options: options::Options) -> Vec<u8> {
     let (xmin, xmax) = (center.0 - dx, center.0 + dx);
     let (ymin, ymax) = (center.1 - dy, center.1 + dy);
 
-    let mut image = RgbaImage::new(width, height);
-
-    let (tx, rx) = mpsc::channel(100);
-
-    let pixels: Vec<(u32, u32)> = (0..height)
-        .flat_map(|y| (0..width).map(|x| (x, y)).collect::<Vec<(u32, u32)>>())
-        .collect();
-
-    tracing::info!("Starting generation");
-    for pixel_group in pixels.chunks(options.chunk_size) {
-        let mut group = vec![(0, 0); pixel_group.len()];
-        group.clone_from_slice(pixel_group);
-        let mut task_tx = tx.clone();
-        task::spawn(async move {
-            for pixel in group {
-                let scaled = (
-                    lerp(xmin, xmax, pixel.0 as f64 / (width as f64 - 1.0)),
-                    lerp(ymin, ymax, pixel.1 as f64 / (height as f64 - 1.0)),
-                );
-
-                let iteration = mandelbrot(scaled, &cfg);
-
-                let index = (3 * iteration as usize).clamp(0, palette.len() - 3);
-
-                let sample = &palette[index..];
-
-                task_tx
-                    .send((
-                        pixel.0,
-                        pixel.1,
-                        Rgba::from([sample[0], sample[1], sample[2], 0xFF]),
-                    ))
-                    .await
-                    .unwrap();
-            }
-        })
-    }
-    tracing::info!("Tasks spawned");
-
-    let mut values = rx.take((width * height) as usize);
-    while let Some((x, y, color)) = values.next().await {
-        image.put_pixel(x, y, color);
-    }
-
-    tracing::info!("Pixels recieved");
-
-    let mut bytes: Vec<u8> = Vec::new();
-    image
-        .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
-        .unwrap();
-
-    tracing::info!("Wrote data to image");
-
-    bytes
-}
-
-pub async fn encode_image(options: options::Options) -> String {
-    let bytes = gen_image(options).await;
-    GeneralPurpose::new(&STANDARD, GeneralPurposeConfig::new()).encode(&bytes)
+    Ok(View {
+        bounds: [xmin, xmax, ymin, ymax],
+        palette,
+        config: cfg,
+    })
 }

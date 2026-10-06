@@ -1,0 +1,262 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WebBrot browser regression checks</title>
+<pre id="result">RUNNING</pre>
+<script type="module">
+// Serve the repository root over HTTP after `trunk build --release`.
+// Open /tests/browser.html; ?app=/other/path/ overrides the app's /dist/ URL.
+const result = document.querySelector('#result');
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+const load = async path => {
+    const response = await fetch(path);
+    assert(response.ok, `Cannot load ${path}`);
+    return response.text();
+};
+const waitFor = async (predicate, message = 'Browser operation timed out') => {
+    for (let n = 0; n < 200; n++) {
+        if (predicate()) return;
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error(message);
+};
+
+// Independent double-precision reference using the original polar complex powf(2).
+function reference(x, y, maxSteps, bailout) {
+    let re = x, im = y, dre = 1, dim = 0, sumRe = 0, sumIm = 0;
+    for (let n = 1; n < maxSteps; n++) {
+        const radius = Math.hypot(re, im) ** 2;
+        const angle = 2 * Math.atan2(im, re);
+        re = radius * Math.cos(angle) + x;
+        im = radius * Math.sin(angle) + y;
+        const nextRe = 2 * dre * re - 2 * dim * im + 1;
+        dim = 2 * dre * im + 2 * dim * re;
+        dre = nextRe;
+        sumRe += dre;
+        sumIm += dim;
+        if (sumRe ** 2 + sumIm ** 2 >= bailout) return n;
+    }
+    return 0;
+}
+
+try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2');
+    assert(gl, 'WebGL2 is required for these checks');
+    const compile = (kind, source) => {
+        const shader = gl.createShader(kind);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        assert(gl.getShaderParameter(shader, gl.COMPILE_STATUS), gl.getShaderInfoLog(shader));
+        return shader;
+    };
+    const program = gl.createProgram();
+    gl.attachShader(program, compile(gl.VERTEX_SHADER, await load('/src/mandelbrot.vert')));
+    gl.attachShader(program, compile(gl.FRAGMENT_SHADER, await load('/src/mandelbrot.frag')));
+    gl.linkProgram(program);
+    assert(gl.getProgramParameter(program, gl.LINK_STATUS), gl.getProgramInfoLog(program));
+    gl.useProgram(program);
+    gl.bindVertexArray(gl.createVertexArray());
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.disable(gl.DITHER);
+    const uniform = name => gl.getUniformLocation(program, name);
+    gl.uniform1i(uniform('palette'), 0);
+
+    let checkedPixels = 0;
+    function check(palette, width, height, bounds, maxSteps, bailout) {
+        canvas.width = width;
+        canvas.height = height;
+        gl.viewport(0, 0, width, height);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, palette.length / 3, 1, 0,
+            gl.RGB, gl.UNSIGNED_BYTE, new Uint8Array(palette));
+        gl.uniform4fv(uniform('bounds'), bounds);
+        gl.uniform2f(uniform('dimensions'), width, height);
+        gl.uniform1i(uniform('max_steps'), maxSteps);
+        gl.uniform1f(uniform('bailout'), bailout);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        const pixels = new Uint8Array(width * height * 4);
+        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        assert(gl.getError() === gl.NO_ERROR, 'WebGL reported a rendering error');
+        for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+            const ux = x / (width - 1), uy = y / (height - 1);
+            const iteration = reference(
+                bounds[0] * (1 - ux) + bounds[1] * ux,
+                bounds[2] * (1 - uy) + bounds[3] * uy, maxSteps, bailout);
+            const index = Math.min(3 * iteration, palette.length - 3);
+            const offset = 4 * ((height - 1 - y) * width + x);
+            for (let channel = 0; channel < 4; channel++) {
+                const expected = channel === 3 ? 255 : palette[index + channel];
+                assert(pixels[offset + channel] === expected,
+                    `Pixel (${x},${y}), iteration ${iteration}, channel ${channel}: ` +
+                    `expected ${expected}, got ${pixels[offset + channel]}`);
+            }
+            checkedPixels++;
+        }
+    }
+
+    // A unique-color diagnostic palette detects the iteration count and end clamping.
+    const diagnostic = Array.from({length: 256}, (_, n) => [n, 255 - n, (17 * n) % 256]).flat();
+    check(diagnostic, 9, 7, [-2, 1, -1, 1], 64, 1e15);
+    check(diagnostic, 7, 5, [-1.5, 0.5, 0, 1], 16, 1e5);
+    check(diagnostic, 2, 2, [-2, 1, 0, 1], 2, 1e15);
+    check(diagnostic.slice(0, 12), 9, 7, [-2, 1, -1, 1], 64, 1e15);
+
+    const colormaps = await load('/src/colormaps.rs');
+    const productionPalettes = {};
+    let checkedPalettes = 0;
+    for (const match of colormaps.matchAll(/pub const (\w+): &\[u8\] = &\[([\s\S]*?)\];/g)) {
+        const palette = match[2].match(/\d+/g).map(Number);
+        productionPalettes[match[1]] = palette;
+        check(palette, 9, 7, [-2, 1, -1, 1], 64, 1e15);
+        checkedPalettes++;
+    }
+    assert(checkedPalettes === 28, `Expected 28 palettes, got ${checkedPalettes}`);
+
+    // Exercise the real Rust/WASM UI, including renderer reuse and the max-step control.
+    const frame = document.createElement('iframe');
+    frame.style.width = '1280px';
+    frame.style.height = '800px';
+    frame.src = new URLSearchParams(location.search).get('app') || '/dist/';
+    document.body.append(frame);
+    const doc = await new Promise((resolve, reject) => {
+        let attempts = 0;
+        const timer = setInterval(() => {
+            if (frame.contentDocument?.querySelector('#generate-image')) {
+                clearInterval(timer);
+                resolve(frame.contentDocument);
+            } else if (++attempts > 200) {
+                clearInterval(timer);
+                reject(new Error('The app did not mount'));
+            }
+        }, 50);
+    });
+    const inputs = doc.querySelectorAll('input');
+    const saveButton = doc.querySelector('#save-image');
+    assert(saveButton.disabled, 'Saving should be disabled before generation');
+    let capturedPixels;
+    const prototype = frame.contentWindow.WebGL2RenderingContext.prototype;
+    const originalDraw = prototype.drawArrays;
+    prototype.drawArrays = function(...args) {
+        originalDraw.apply(this, args);
+        capturedPixels = new Uint8Array(this.drawingBufferWidth * this.drawingBufferHeight * 4);
+        this.readPixels(0, 0, this.drawingBufferWidth, this.drawingBufferHeight,
+            this.RGBA, this.UNSIGNED_BYTE, capturedPixels);
+    };
+    const set = (index, value) => {
+        inputs[index].value = String(value);
+        inputs[index].dispatchEvent(new frame.contentWindow.Event('input', {bubbles: true}));
+    };
+    const generate = async () => {
+        doc.querySelector('#generate-image').click();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        return doc.querySelector('[role="status"]').textContent;
+    };
+    set(0, 9); set(1, 7); set(2, -0.5); set(3, 0); set(4, 3); set(5, 2);
+    set(7, 64);
+    const select = doc.querySelector('select');
+    select.value = 'Batlow';
+    select.dispatchEvent(new frame.contentWindow.Event('change', {bubbles: true}));
+    const firstStatus = await generate();
+    assert(firstStatus.includes('Rendered'), `Explicit-center generation failed: ${firstStatus}`);
+    const appCanvas = doc.querySelector('canvas');
+    assert(appCanvas.width === 9 && appCanvas.height === 7, 'Canvas dimensions are incorrect');
+    const batlow = productionPalettes.BATLOW;
+    for (let y = 0; y < 7; y++) for (let x = 0; x < 9; x++) {
+        const n = reference(-2 + 3 * x / 8, -1 + 2 * y / 6, 64, 1e15);
+        const index = Math.min(3 * n, batlow.length - 3);
+        const offset = 4 * ((6 - y) * 9 + x);
+        for (let c = 0; c < 3; c++) {
+            assert(capturedPixels[offset + c] === batlow[index + c],
+                `Rust renderer pixel (${x},${y}), iteration ${n}, channel ${c}: ` +
+                `expected ${batlow[index + c]}, got ${capturedPixels[offset + c]}`);
+        }
+    }
+    // Save after presentation and after editing options, without generating a new view.
+    // This catches blank WebGL exports and exports that accidentally rerandomize the view.
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const renderedPixels = capturedPixels.slice();
+    let download;
+    const anchorPrototype = frame.contentWindow.HTMLAnchorElement.prototype;
+    const originalClick = anchorPrototype.click;
+    anchorPrototype.click = function() { download = {url: this.href, filename: this.download}; };
+    set(0, 111);
+    saveButton.click();
+    await waitFor(() => download);
+    anchorPrototype.click = originalClick;
+    assert(download.filename === 'webbrot-9x7.png', 'Download filename must use the rendered dimensions');
+    const blob = await (await fetch(download.url)).blob();
+    assert(blob.type === 'image/png', 'Download is not a PNG');
+    const bitmap = await createImageBitmap(blob);
+    assert(bitmap.width === 9 && bitmap.height === 7, 'PNG must retain full rendered resolution');
+    const decoded = document.createElement('canvas');
+    decoded.width = bitmap.width;
+    decoded.height = bitmap.height;
+    const context = decoded.getContext('2d');
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const pngPixels = context.getImageData(0, 0, 9, 7).data;
+    for (let y = 0; y < 7; y++) for (let x = 0; x < 9; x++) for (let c = 0; c < 4; c++) {
+        assert(pngPixels[4 * (y * 9 + x) + c] === renderedPixels[4 * ((6 - y) * 9 + x) + c],
+            'Saved PNG does not match the displayed image');
+    }
+    await waitFor(() => !saveButton.disabled);
+    set(0, 9);
+    set(7, 2);
+    assert((await generate()).includes('Rendered'), 'Changing max steps failed');
+    for (let offset = 0; offset < capturedPixels.length; offset += 4) {
+        for (let c = 0; c < 3; c++) {
+            assert(capturedPixels[offset + c] === batlow[c], 'The shader max-step uniform was not updated');
+        }
+    }
+    set(7, 1);
+    assert((await generate()).includes('max must be at least 2'), 'Max steps does not update the maximum');
+    set(7, 64); set(0, 1);
+    assert((await generate()).includes('at least 2 pixels'), 'Invalid dimensions were not rejected');
+    set(0, 17); set(1, 11);
+    assert((await generate()).includes('Rendered'), 'Renderer reuse after resizing failed');
+    set(2, ''); set(3, ''); set(4, ''); set(5, ''); set(7, 1024); set(8, 42);
+    const randomStatus = await generate();
+    assert(randomStatus.includes('Rendered'), `Seeded random-center generation failed: ${randomStatus}`);
+    // Changing intrinsic canvas sizes must never resize the preview or reposition settings.
+    set(2, -0.5); set(3, 0); set(4, 3); set(5, 2); set(7, 2);
+    for (const screenWidth of [1280, 768, 375]) {
+        frame.style.width = `${screenWidth}px`;
+        await new Promise(resolve => setTimeout(resolve, 50));
+        const settings = doc.querySelector('.controls-panel').getBoundingClientRect();
+        const preview = doc.querySelector('.preview-panel').getBoundingClientRect();
+        for (const [width, height] of [[4096, 128], [128, 4096], [2048, 2048]]) {
+            set(0, width); set(1, height);
+            assert((await generate()).includes('Rendered'), 'High-resolution rendering failed');
+            const nextSettings = doc.querySelector('.controls-panel').getBoundingClientRect();
+            const nextPreview = doc.querySelector('.preview-panel').getBoundingClientRect();
+            for (const key of ['x', 'y', 'width', 'height']) {
+                assert(Math.abs(settings[key] - nextSettings[key]) < 1, `Settings shifted at ${screenWidth}px`);
+                assert(Math.abs(preview[key] - nextPreview[key]) < 1, `Preview shifted at ${screenWidth}px`);
+            }
+            assert(doc.documentElement.scrollWidth <= frame.contentWindow.innerWidth,
+                `Horizontal overflow at ${screenWidth}px`);
+            assert(appCanvas.width === width && appCanvas.height === height,
+                'Fit-to-screen must not reduce rendering resolution');
+            assert(appCanvas.getBoundingClientRect().width <= frame.contentWindow.innerWidth,
+                'Canvas exceeds screen width');
+            assert(frame.contentWindow.getComputedStyle(appCanvas).objectFit === 'contain',
+                'Preview must preserve image aspect ratio');
+        }
+    }
+    set(0, 17); set(1, 11);
+    assert((await generate()).includes('Rendered'), 'Restoring small render dimensions failed');
+    const loss = appCanvas.getContext('webgl2').getExtension('WEBGL_lose_context');
+    if (loss) {
+        loss.loseContext();
+        await waitFor(() => doc.querySelector('[role="status"]').textContent.includes('was lost'));
+        loss.restoreContext();
+        await waitFor(() => doc.querySelector('[role="status"]').textContent.includes('has recovered'));
+        assert((await generate()).includes('Rendered'), 'Generation after GPU context restoration failed');
+    }
+    result.textContent = `PASS: ${checkedPixels} GPU pixels, ${checkedPalettes} palettes, PNG export, responsive sizing, and UI generation/validation/reuse`;
+} catch (error) {
+    result.textContent = `FAIL: ${error.stack || error}`;
+}
+</script>

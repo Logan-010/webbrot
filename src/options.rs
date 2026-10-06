@@ -9,7 +9,6 @@ pub struct Options {
     pub colormap: Option<Colormap>,
     pub rng_seed: Option<u64>,
     pub bailout_num: f64,
-    pub chunk_size: usize,
 }
 
 impl Default for Options {
@@ -22,7 +21,6 @@ impl Default for Options {
             colormap: None,
             rng_seed: None,
             bailout_num: super::BAILOUT_NUM,
-            chunk_size: 15,
         }
     }
 }
